@@ -10,14 +10,15 @@ jobs:
     steps:
       - name: 1. Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # This helps TruffleHog see the history
 
       - name: 2. Scan for Hardcoded Secrets (TruffleHog)
         uses: trufflesecurity/trufflehog@main
+        continue-on-error: true # Keeps the pipeline running even if it finds a secret
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
-          extra_args: --debug --only-verified
+          extra_args: --debug # Removed --only-verified so it catches our fake key
 
       - name: 3. Set up Python
         uses: actions/setup-python@v4
@@ -25,6 +26,20 @@ jobs:
           python-version: '3.10'
 
       - name: 4. Run SAST Scan (Bandit)
+        continue-on-error: true # Keeps pipeline running to show all errors for your report
         run: |
           pip install bandit
           bandit -r . -f custom
+
+      - name: 5. Build Docker Image
+        run: docker build -t my-vulnerable-app:latest .
+
+      - name: 6. Run Container Scan (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'my-vulnerable-app:latest'
+          format: 'table'
+          exit-code: '1' # Fails the pipeline if vulnerabilities are found
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
